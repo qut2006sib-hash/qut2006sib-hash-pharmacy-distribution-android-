@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,7 +31,7 @@ jobs:
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           for apk in $(find app/build/outputs/apk -name '*.apk'); do
-            info=$("$BT/aapt2" dump badging "$apk" | grep -E "^(package|sdkVersion|targetSdkVersion|native-code)" | tr '\n' ' ')
+            info=$("$BT/aapt2" dump badging "$apk" | grep -E "^(package|sdkVersion|minSdkVersion|targetSdkVersion|native-code|application-debuggable|testOnly)" | tr '\n' ' ')
             cert=$("$BT/apksigner" verify --verbose --print-certs "$apk" | grep -E "Verified using|certificate SHA-256" | tr '\n' ' ')
             echo "::notice title=$(basename "$apk")::$info | $cert"
           done
@@ -46,3 +49,16 @@ jobs:
         with:
           name: test-reports
           path: core/build/reports/tests/
+
+      # A plain .apk download for phones: no zip, no GitHub login needed.
+      - name: Publish APK as a release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-${{ github.run_number }}"
+          cp app/build/outputs/apk/debug/app-debug.apk "pharmacy-distribution-${tag}.apk"
+          sha256sum "pharmacy-distribution-${tag}.apk" > "pharmacy-distribution-${tag}.apk.sha256"
+          gh release create "$tag" "pharmacy-distribution-${tag}.apk" "pharmacy-distribution-${tag}.apk.sha256" \
+            --target "${{ github.sha }}" --title "Build ${{ github.run_number }}" --latest \
+            --notes "ثبّت ملف pharmacy-distribution-${tag}.apk مباشرة على الهاتف (أندرويد 5 أو أحدث)."
