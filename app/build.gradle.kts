@@ -12,10 +12,23 @@ android {
 
     defaultConfig {
         applicationId = "com.localdistribution.pharmacy"
-        minSdk = 26
+        minSdk = 21
         targetSdk = 35
         versionCode = 1
         versionName = "0.2.0"
+    }
+
+    // One fixed key for every CI build, so a new APK installs as an update over
+    // the previous one (a fresh random key per build makes Android refuse it).
+    // This is a development key committed to the repo: replace it with a
+    // private release key (GitHub secret) before publishing on Google Play.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
@@ -27,6 +40,8 @@ android {
     }
 
     compileOptions {
+        // java.time on Android 5–7 comes from core library desugaring.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -47,6 +62,7 @@ kotlin {
 
 dependencies {
     implementation(project(":core"))
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)

@@ -2,11 +2,8 @@ package com.localdistribution.pharmacy.core
 
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.channels.FileChannel
-import java.nio.file.FileAlreadyExistsException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
+import java.io.IOException
+import java.io.RandomAccessFile
 import java.util.UUID
 
 /** A database file failed validation; the message is shown to the user. */
@@ -68,28 +65,35 @@ object Inspector {
     }
 }
 
+/**
+ * File helpers using only java.io, so the core runs on Android 5+ (java.nio.file
+ * only exists from Android 8). On Linux/Android, File.renameTo is rename(2):
+ * atomic, and it replaces an existing target.
+ */
 object Files2 {
     fun syncFile(file: File) {
-        FileChannel.open(file.toPath(), StandardOpenOption.WRITE).use { it.force(true) }
+        RandomAccessFile(file, "rw").use { it.fd.sync() }
     }
 
+    /** Best effort: directory fsync needs java.nio.file, which Android < 8 lacks. */
     fun syncDir(dir: File) {
-        // Directory fsync is supported on Linux/Android; elsewhere it is best-effort.
         try {
-            FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) }
-        } catch (e: Exception) {
+            java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+        } catch (t: Throwable) {
         }
+    }
+
+    /** Atomically move `from` over `to` (same directory tree, same filesystem). */
+    fun replace(from: File, to: File) {
+        if (!from.renameTo(to)) throw IOException("تعذّر نقل الملف إلى مكانه النهائي: " + to.name)
     }
 
     /** Publish `temp` as `destination`, never replacing an existing file. */
     fun publishExclusive(temp: File, destination: File) {
+        // createNewFile is atomic: it fails if the name is already taken.
+        if (!destination.createNewFile()) throw DataSafetyError("الملف موجود؛ اختر اسمًا جديدًا للحفاظ عليه.")
         try {
-            Files.createFile(destination.toPath())
-        } catch (e: FileAlreadyExistsException) {
-            throw DataSafetyError("الملف موجود؛ اختر اسمًا جديدًا للحفاظ عليه.")
-        }
-        try {
-            Files.move(temp.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            replace(temp, destination)
             syncDir(destination.absoluteFile.parentFile)
         } catch (e: Exception) {
             if (destination.exists() && destination.length() == 0L) destination.delete()
@@ -202,7 +206,7 @@ class BackupManager(private val root: File, private val factory: SqlFactory) {
                 }
             }
             for (suffix in listOf("-wal", "-shm", "-journal")) File(database.path + suffix).delete()
-            Files.move(stage.toPath(), database.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            Files2.replace(stage, database)
             database.setWritable(true, true)
             Files2.syncDir(root)
             lastError = ""

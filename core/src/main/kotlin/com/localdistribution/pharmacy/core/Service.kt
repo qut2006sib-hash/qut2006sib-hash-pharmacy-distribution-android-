@@ -193,7 +193,9 @@ class Service(private val db: AppDatabase) {
                 if (!seen.add(product.id)) throw ValidationError("المنتج مكرر؛ عدّل كميته في البند الموجود.")
                 val qty = Validate.quantity(line.quantity)
                 val price = Validate.money(line.price)
-                val total = Math.multiplyExact(qty, price)
+                // qty ≤ 1e6 and price ≤ 1e14, so this cannot overflow a Long; checked anyway.
+                if (price != 0L && qty > Long.MAX_VALUE / price) throw ValidationError("إجمالي الطلبية يتجاوز الحد المدعوم.")
+                val total = qty * price
                 subtotal += total
                 if (subtotal > MAX_MONEY) throw ValidationError("إجمالي الطلبية يتجاوز الحد المدعوم.")
                 prepared += Line(product, qty, price, total)
